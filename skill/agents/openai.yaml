@@ -1,0 +1,4 @@
+interface:
+  display_name: "BabelForge eXecutor"
+  short_description: "Install and operate BFX PDF translation."
+  default_prompt: "Use $babelforge-executor to install BFX and translate a PDF."

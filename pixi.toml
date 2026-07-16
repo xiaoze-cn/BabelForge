@@ -1,0 +1,22 @@
+[workspace]
+authors = ["xiaoze <hanze06@163.com>"]
+channels = ["conda-forge"]
+name = "BabelForge eXecutor"
+platforms = ["win-64"]
+version = "0.1.0"
+
+[tasks]
+
+[feature.runtime.dependencies]
+python = "3.12.*"
+
+[feature.runtime.pypi-dependencies]
+babeldoc = "==0.6.3"
+
+[feature.dev.dependencies]
+just = "1.56.*"
+rust = "1.97.*"
+
+[environments]
+default = ["runtime", "dev"]
+runtime = { features = ["runtime"], no-default-feature = true }
