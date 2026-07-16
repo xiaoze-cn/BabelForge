@@ -1,102 +1,82 @@
 # BabelForge eXecutor
 
-BabelForge eXecutor (`bfx`) is a command-line interface for translating PDF files through BabelDoc
+PDF translation CLI powered by BabelDOC and OpenAI-compatible models
 
 ## Install
 
-The Windows installer is published as:
+Windows x64 installer
 
 ```text
 dist/BabelForge-eXecutor-win-Setup.exe
-
-# Quiet installation
-.\dist\BabelForge-eXecutor-win-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-
-# Choose an installation directory
-.\dist\BabelForge-eXecutor-win-Setup.exe /DIR="C:\Tools\bfx"
 ```
 
-## Configuration
+Run the installer and follow the wizard
 
-By default, BFX stores the user configuration at:
+## Config
 
-```
+```text
 %LOCALAPPDATA%\BabelForge\eXecutor\config.toml
 ```
 
-Example `config.toml`:
-
 ```toml
-[Models."GPT5.5"]
-Model = "gpt-5.5"
+[Models."GPT5.4"]
+Model = "gpt-5.4"
 URL = "https://api.example.com/v1"
-Key = "sk-xxxx"         # env:BFX_API_KEY
+Key = "sk-replace-with-your-key"
 
 [Presets.Default]
 Pages = "All"
-Language = "en->zh"     # "zh->en"
-Format = "Pair"         # "Both" or "Mono"
-Destination = "Same"    # "C:\Wiki\Papers"
-Watermark = false       # true
+Language = "en->zh"
+Format = "Pair"
+Destination = "Same"
+Watermark = false
 ```
-
 
 ```powershell
 bfx config
 bfx config providers
 bfx config presets
-
-bfx config model set GPT5.5 --model gpt-5.5 --url https://api.example.com/v1 --key sk-xxxx
-bfx config preset set Default --language "en->zh" --format Pair --watermark false --destination Same
+bfx doctor
 ```
 
-## Usage
+## Translate
 
 ```powershell
-# Verify the configured provider and bundled BabelDOC runtime
-bfx doctor
-
-# Translate immediately
 bfx run paper.pdf --model GPT5.4
-bfx run C:/Wiki/Papers --model GPT5.4 --preset Default
-
-# Queue work
+bfx run paper.pdf --model GPT5.4 --json
 bfx submit paper.pdf --model GPT5.4
 
-# Inspect and manage tasks
 bfx get --limit 50
-bfx check 20260715-153042
-bfx stop 20260715-153042
-bfx retry 20260715-153042
+bfx check <task-id> --json
+bfx stop <task-id>
+bfx retry <task-id>
+```
 
-# JSON output where supported
-bfx get --json
-bfx check 20260715-153042 --json
-bfx run paper.pdf --model GPT5.4 --json
+## Replace
+
+```powershell
+bfx replace paper.pdf --keep
+bfx replace paper.pdf --remove
+bfx replace paper.pdf --undo
 ```
 
 ## Codex Skill
 
-The repository includes [`skill`](skill). Install that folder into `~/.codex/skills/babelforge-executor` to let Codex install, configure, and operate BFX.
+Copy [`skill`](skill) to
+
+```text
+~/.codex/skills/babelforge-executor
+```
 
 ## Build
-
-Install the Pixi environment and Inno Setup 7, then build the Windows x64 installer:
 
 ```powershell
 just setup
 just package
 ```
 
-`just package` uses `C:\Program Files\Inno Setup 7\ISCC.exe` by default. Override it when needed:
-
-```powershell
-$env:BFX_INNO = 'C:\Program Files\Inno Setup 7\ISCC.exe'
-just package
-```
-
 ## License
 
-BabelForge eXecutor is licensed under the GNU Affero General Public License v3.0 or later. See [LICENSE](LICENSE). When distributing a binary release, make the corresponding source for that release available from the same download location.
+AGPL-3.0-or-later
 
-The bundled BabelDOC 0.6.3 runtime is also licensed under AGPL-3.0-or-later. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for its source and attribution.
+See [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
