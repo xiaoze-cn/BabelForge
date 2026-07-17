@@ -73,7 +73,7 @@ pre-commit: fmt-check test
 package platform=installer_target:
     @if ("{{ platform }}" -ne "windows-x64") { throw "Inno Setup packaging currently supports windows-x64 only." }
     just release
-    @& "{{ inno_compiler }}" "{{ root }}\installer\BabelForge.iss"
+    @$cargo = Get-Content "{{ root }}\Cargo.toml" -Raw; $version = [regex]::Match($cargo, '(?m)^version = "([^"]+)"$').Groups[1].Value; if ([string]::IsNullOrWhiteSpace($version)) { throw "Cannot read the BFX version from Cargo.toml." }; & "{{ inno_compiler }}" "/DAppVersion=$version" "{{ root }}\installer\BabelForge.iss"
 
 _toolchain:
     just cargo --version

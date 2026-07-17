@@ -22,13 +22,8 @@ GitHub Releases
 https://github.com/xiaoze-cn/BabelForge/releases/latest
 ```
 
-Stable installer asset
-
-```text
-https://github.com/xiaoze-cn/BabelForge/releases/latest/download/BabelForge-eXecutor-win-Setup.exe
-```
-
-- Download to a temporary directory
+- Select the versioned `BabelForge-eXecutor-<version>-win-Setup.exe` asset from the latest release
+- Download it to a temporary directory
 - Inspect the Authenticode signature
 - Tell the user when the installer is unsigned or invalid
 - Report a missing release or asset and request a local installer path
@@ -44,6 +39,17 @@ Unattended installation only when requested
 After installation run `bfx info` and `bfx doctor`
 
 The installer is per-user and adds its directory to the user `PATH`
+
+## Update
+
+```powershell
+bfx update --check
+bfx update --check --json
+```
+
+- Use this only to check the latest GitHub Release and its versioned installer URL
+- It does not download or install a release
+- BabelDOC is bundled with BFX and is updated only in a tested BFX release
 
 ## Config
 

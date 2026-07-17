@@ -1,7 +1,12 @@
+#ifndef AppVersion
+  #error AppVersion must be supplied by the package command.
+#endif
+#define OutputName "BabelForge-eXecutor-" + AppVersion + "-win-Setup"
+
 [Setup]
 AppId={{29D1334D-14E5-4A01-AEF3-2C1BFC81E08B}
 AppName=BabelForge eXecutor
-AppVersion=0.1.0
+AppVersion={#AppVersion}
 AppPublisher=BabelForge
 AppCopyright=Copyright (C) 2026 BabelForge
 DefaultDirName={localappdata}\BabelForge eXecutor
@@ -10,13 +15,13 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\dist
-OutputBaseFilename=BabelForge-eXecutor-win-Setup
+OutputBaseFilename={#OutputName}
 Compression=lzma2/ultra64
 SolidCompression=yes
 ChangesEnvironment=yes
 UninstallDisplayName=BabelForge eXecutor
 UninstallDisplayIcon={app}\bfx.exe
-VersionInfoVersion=0.1.0
+VersionInfoVersion={#AppVersion}
 VersionInfoProductName=BabelForge eXecutor
 VersionInfoDescription=BabelForge eXecutor command-line interface
 
