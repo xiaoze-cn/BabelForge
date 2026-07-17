@@ -1,26 +1,57 @@
 # BabelForge eXecutor
 
-PDF translation CLI powered by BabelDOC and OpenAI-compatible models
+Translate PDFs while preserving their layout with a local BabelDOC runtime and an OpenAI-compatible model provider. BFX keeps the source PDF unchanged and writes the translated result beside it by default.
 
-## Install
+## Quick Start
 
-Windows x64 installer
+The Windows installer includes BFX and BabelDOC, adds BFX to the current user's PATH, and registers an uninstall entry. Install it once, configure a model, then translate a PDF.
 
-```text
-dist/BabelForge-eXecutor-win-Setup.exe
+- Download `BabelForge-eXecutor-win-Setup.exe` from [GitHub Releases](https://github.com/xiaoze-cn/BabelForge/releases)
+- Run the installer
+- Configure a model
+- Translate a PDF
+
+```powershell
+bfx config model set GPT5.5 --model gpt-5.5 --url https://api.example.com/v1 --key sk-xxxx
+bfx doctor
+bfx run paper.pdf --model GPT5.5
 ```
 
-Run the installer and follow the wizard
+## Common Commands
+
+Use `run` when you want to wait for a translation to finish. Use `submit` when you want BFX to create a task and let its background worker process it.
+
+```powershell
+# Run now
+bfx run paper.pdf --model GPT5.5
+bfx run paper.pdf --model GPT5.5 --json
+
+# Queue work and inspect its task
+bfx submit paper.pdf --model GPT5.5
+bfx get --limit 50
+bfx check <task-id> --json
+bfx stop <task-id>
+bfx retry <task-id>
+
+# Replace a source PDF after a task has finished
+bfx replace paper.pdf --keep
+bfx replace paper.pdf --remove
+bfx replace paper.pdf --undo
+```
 
 ## Config
+
+Models and presets are stored locally for the current Windows user, rather than in the installation directory. A literal key is supported, but an environment variable avoids leaving the secret in the config file.
 
 ```text
 %LOCALAPPDATA%\BabelForge\eXecutor\config.toml
 ```
 
+Keep API keys private and use an environment variable key when possible
+
 ```toml
-[Models."GPT5.4"]
-Model = "gpt-5.4"
+[Models."GPT5.5"]
+Model = "gpt-5.5"
 URL = "https://api.example.com/v1"
 Key = "sk-replace-with-your-key"
 
@@ -36,39 +67,28 @@ Watermark = false
 bfx config
 bfx config providers
 bfx config presets
-bfx doctor
 ```
 
-## Translate
+To use an environment variable, set it in Windows and pass its name with the `env:` prefix.
 
 ```powershell
-bfx run paper.pdf --model GPT5.4
-bfx run paper.pdf --model GPT5.4 --json
-bfx submit paper.pdf --model GPT5.4
-
-bfx get --limit 50
-bfx check <task-id> --json
-bfx stop <task-id>
-bfx retry <task-id>
-```
-
-## Replace
-
-```powershell
-bfx replace paper.pdf --keep
-bfx replace paper.pdf --remove
-bfx replace paper.pdf --undo
+$env:OPENAI_API_KEY = "sk-xxxx"
+bfx config model set GPT5.5 --model gpt-5.5 --url https://api.example.com/v1 --key env:OPENAI_API_KEY
 ```
 
 ## Codex Skill
 
-Copy [`skill`](skill) to
+Install the bundled Codex skill to let Codex find BFX on GitHub Releases, configure a provider, translate PDFs, and manage tasks through the CLI.
+
+Copy the `skill` directory to
 
 ```text
 ~/.codex/skills/babelforge-executor
 ```
 
-## Build
+## Development
+
+Use Pixi for the development environment and Inno Setup to build the Windows installer.
 
 ```powershell
 just setup
@@ -77,6 +97,4 @@ just package
 
 ## License
 
-AGPL-3.0-or-later
-
-See [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+Licensed under [AGPL-3.0-or-later](LICENSE), with BabelDOC attribution and third-party licenses in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
