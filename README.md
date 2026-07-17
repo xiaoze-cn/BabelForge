@@ -78,13 +78,7 @@ bfx config model set GPT5.5 --model gpt-5.5 --url https://api.example.com/v1 --k
 
 ## Codex Skill
 
-Install the bundled Codex skill to let Codex find BFX on GitHub Releases, configure a provider, translate PDFs, and manage tasks through the CLI.
-
-Copy the `skill` directory to
-
-```text
-~/.codex/skills/babelforge-executor
-```
+The bundled Codex skill lets Codex find BFX on GitHub Releases, configure a provider, translate PDFs, and manage tasks through the CLI. Install it by copying the [`skill`](skill) directory to `~/.codex/skills/babelforge-executor`.
 
 ## Development
 
