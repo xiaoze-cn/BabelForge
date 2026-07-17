@@ -1,4 +1,3 @@
 .pixi/*
 !.pixi/config.toml
 target/
-dist/
