@@ -31,7 +31,12 @@ pub fn version(root: &Path) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
-pub fn run<F>(root: &Path, input: &EngineInput, should_stop: F) -> Result<EngineOutput>
+pub fn run<F>(
+    root: &Path,
+    temporary_dir: &Path,
+    input: &EngineInput,
+    should_stop: F,
+) -> Result<EngineOutput>
 where
     F: Fn() -> Result<bool>,
 {
@@ -40,18 +45,43 @@ where
     fs::create_dir_all(&destination).map_err(|error| {
         BfxError::engine(format!("Cannot create the output directory ({error})"))
     })?;
-    let config = write_config(&input.plan, &input.key)?;
-    let result = run_command(
+    let config = write_config(temporary_dir, &input.plan, &input.key)?;
+    run_command(
         root,
         input,
         &source,
         &target,
         &destination,
-        &config,
+        config.path(),
         &should_stop,
-    );
-    let _ = fs::remove_file(config);
-    result
+    )
+}
+
+pub fn cleanup_temporary_files(directory: &Path) -> Result<()> {
+    let entries = fs::read_dir(directory).map_err(|error| {
+        BfxError::engine(format!("Cannot inspect temporary BFX files ({error})"))
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            BfxError::engine(format!("Cannot inspect a temporary BFX file ({error})"))
+        })?;
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if path.is_file()
+            && name.starts_with("bfx-")
+            && (name.ends_with(".toml") || name.ends_with(".log"))
+        {
+            fs::remove_file(&path).map_err(|error| {
+                BfxError::engine(format!(
+                    "Cannot remove stale temporary file \"{}\" ({error})",
+                    path.display()
+                ))
+            })?;
+        }
+    }
+    Ok(())
 }
 
 fn run_command<F>(
@@ -103,7 +133,10 @@ where
             ));
         }
     }
-    let (log, path) = log_file()?;
+    let temporary_dir = config
+        .parent()
+        .ok_or_else(|| BfxError::engine("The BabelDOC config has no parent directory"))?;
+    let (log, path) = log_file(temporary_dir)?;
     let stderr = log
         .try_clone()
         .map_err(|error| BfxError::engine(format!("Cannot capture BabelDOC output ({error})")))?;
@@ -112,14 +145,13 @@ where
         .stderr(Stdio::from(stderr))
         .spawn()
         .map_err(|error| BfxError::engine(format!("Cannot run BabelDOC ({error})")))?;
-    let result = wait_child(&mut child, &path, should_stop);
-    let _ = fs::remove_file(&path);
+    let result = wait_child(&mut child, path.path(), should_stop);
     let (status, text) = result?;
     if !status.success() {
         let status = status
             .code()
             .map_or_else(|| "unknown".to_owned(), |code| code.to_string());
-        let detail = diagnostic(&text);
+        let detail = diagnostic(&text, &input.key);
         let message = match detail {
             Some(detail) => format!("BabelDOC failed with exit status {status} ({detail})"),
             _ => format!("BabelDOC failed with exit status {status}"),
@@ -137,15 +169,24 @@ where
     Ok(output)
 }
 
-fn log_file() -> Result<(fs::File, PathBuf)> {
+fn log_file(directory: &Path) -> Result<(fs::File, TemporaryFile)> {
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|error| BfxError::engine(format!("Cannot read the system time ({error})")))?
         .as_nanos();
-    let path = std::env::temp_dir().join(format!("bfx-{stamp}.log"));
-    let file = fs::File::create(&path)
-        .map_err(|error| BfxError::engine(format!("Cannot capture BabelDOC output ({error})")))?;
-    Ok((file, path))
+    for attempt in 0..100 {
+        let path = directory.join(format!("bfx-{}-{stamp}-{attempt}.log", std::process::id()));
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => return Ok((file, TemporaryFile { path })),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(BfxError::engine(format!(
+                    "Cannot capture BabelDOC output ({error})"
+                )));
+            }
+        }
+    }
+    Err(BfxError::engine("Cannot allocate a BabelDOC log file"))
 }
 
 fn wait_child<F>(
@@ -197,9 +238,11 @@ fn command(root: &Path) -> Result<Command> {
     if let Some(value) = std::env::var_os("BFX_BABELDOC") {
         return Ok(Command::new(value));
     }
-    let runtime = babeldoc_path(root);
-    if runtime.is_file() {
-        return Ok(Command::new(runtime));
+    let python = python_path(root);
+    if python.is_file() {
+        let mut command = Command::new(python);
+        command.args(["-m", "babeldoc.main"]);
+        return Ok(command);
     }
     Err(BfxError::engine(format!(
         "Cannot locate BabelDOC in \"{}\"",
@@ -207,14 +250,14 @@ fn command(root: &Path) -> Result<Command> {
     )))
 }
 
-fn babeldoc_path(root: &Path) -> PathBuf {
+fn python_path(root: &Path) -> PathBuf {
     #[cfg(windows)]
     {
-        root.join("runtime").join("Scripts").join("babeldoc.exe")
+        root.join("runtime").join("python.exe")
     }
     #[cfg(not(windows))]
     {
-        root.join("runtime").join("bin").join("babeldoc")
+        root.join("runtime").join("bin").join("python")
     }
 }
 
@@ -322,7 +365,23 @@ struct Service<'a> {
     key: &'a str,
 }
 
-fn write_config(plan: &TaskPlan, key: &str) -> Result<PathBuf> {
+struct TemporaryFile {
+    path: PathBuf,
+}
+
+impl TemporaryFile {
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TemporaryFile {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+fn write_config(directory: &Path, plan: &TaskPlan, key: &str) -> Result<TemporaryFile> {
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|error| BfxError::engine(format!("Cannot read the system time ({error})")))?
@@ -345,8 +404,7 @@ fn write_config(plan: &TaskPlan, key: &str) -> Result<PathBuf> {
         options.mode(0o600);
     }
     for attempt in 0..100 {
-        let path =
-            std::env::temp_dir().join(format!("bfx-{}-{stamp}-{attempt}.toml", std::process::id()));
+        let path = directory.join(format!("bfx-{}-{stamp}-{attempt}.toml", std::process::id()));
         let mut file = match options.open(&path) {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -365,12 +423,12 @@ fn write_config(plan: &TaskPlan, key: &str) -> Result<PathBuf> {
                 "Cannot write the BabelDOC config ({error})"
             )));
         }
-        return Ok(path);
+        return Ok(TemporaryFile { path });
     }
     Err(BfxError::engine("Cannot allocate a BabelDOC config file"))
 }
 
-fn diagnostic(raw: &str) -> Option<String> {
+fn diagnostic(raw: &str, key: &str) -> Option<String> {
     raw.lines()
         .find(|line| {
             let lower = line.to_ascii_lowercase();
@@ -379,7 +437,14 @@ fn diagnostic(raw: &str) -> Option<String> {
                 && !lower.contains("api_key")
                 && !lower.contains("authorization")
         })
-        .map(|line| line.trim().chars().take(300).collect())
+        .map(|line| {
+            let line = if key.is_empty() {
+                line.trim().to_owned()
+            } else {
+                line.trim().replace(key, "[REDACTED]")
+            };
+            line.chars().take(300).collect()
+        })
 }
 
 #[cfg(test)]
@@ -424,5 +489,33 @@ mod tests {
             language("EN -> ZH").unwrap(),
             ("en".to_owned(), "zh".to_owned())
         );
+    }
+
+    #[test]
+    fn redacts_key_from_diagnostics() {
+        assert_eq!(
+            diagnostic("request failed for sk-secret", "sk-secret"),
+            Some("request failed for [REDACTED]".to_owned())
+        );
+    }
+
+    #[test]
+    fn cleans_stale_sensitive_files() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("bfx-cleanup-{stamp}"));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("bfx-stale.toml"), "secret").unwrap();
+        fs::write(root.join("bfx-stale.log"), "secret").unwrap();
+        fs::write(root.join("keep.txt"), "keep").unwrap();
+
+        cleanup_temporary_files(&root).unwrap();
+
+        assert!(!root.join("bfx-stale.toml").exists());
+        assert!(!root.join("bfx-stale.log").exists());
+        assert!(root.join("keep.txt").exists());
+        let _ = fs::remove_dir_all(root);
     }
 }

@@ -206,6 +206,7 @@ where
         .create(true)
         .read(true)
         .write(true)
+        .truncate(false)
         .open(parent.join(format!(".{file_name}.lock")))
         .map_err(|error| BfxError::config(format!("Cannot lock {label} ({error})")))?;
     lock.lock_exclusive()
@@ -513,8 +514,10 @@ pub(crate) mod command {
         let mut config = config::read_config(&app.paths.config)?;
         match command {
             ModelCommand::Set(args) => {
+                let key = saved_key(config.models.keys(), &args.name)
+                    .unwrap_or_else(|| args.name.clone());
                 config.models.insert(
-                    args.name.clone(),
+                    key.clone(),
                     Provider {
                         model: args.model,
                         url: config::openai_base_url(&args.url)?,
@@ -523,9 +526,9 @@ pub(crate) mod command {
                 );
                 config::write_config(&app.paths.config, &config)?;
                 if json {
-                    return output::json(json!({ "action": "saved", "model": args.name }));
+                    return output::json(json!({ "action": "saved", "model": key }));
                 }
-                println!("Done [BFX-CFG]: Saved model \"{}\"", args.name);
+                println!("Done [BFX-CFG]: Saved model \"{key}\"");
             }
             ModelCommand::Remove(args) => {
                 let key = matching_key(config.models.keys(), &args.name)?;
@@ -544,11 +547,7 @@ pub(crate) mod command {
         let mut config = config::read_config(&app.paths.config)?;
         match command {
             PresetCommand::Set(args) => {
-                let key = config
-                    .presets
-                    .keys()
-                    .find(|saved| saved.eq_ignore_ascii_case(&args.name))
-                    .cloned()
+                let key = saved_key(config.presets.keys(), &args.name)
                     .unwrap_or_else(|| args.name.clone());
                 let mut preset = config
                     .presets
@@ -595,8 +594,24 @@ pub(crate) mod command {
     }
 
     fn matching_key<'a>(mut keys: impl Iterator<Item = &'a String>, name: &str) -> Result<String> {
-        keys.find(|saved| saved.eq_ignore_ascii_case(name))
-            .cloned()
+        saved_key(&mut keys, name)
             .ok_or_else(|| BfxError::config(format!("\"{name}\" is not configured")))
+    }
+
+    fn saved_key<'a>(keys: impl Iterator<Item = &'a String>, name: &str) -> Option<String> {
+        keys.filter(|saved| saved.eq_ignore_ascii_case(name))
+            .min()
+            .cloned()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn reuses_names_case_insensitively() {
+            let names = ["GPT5".to_owned(), "Other".to_owned()];
+            assert_eq!(saved_key(names.iter(), "gpt5"), Some("GPT5".to_owned()));
+        }
     }
 }

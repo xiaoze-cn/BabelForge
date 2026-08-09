@@ -2,7 +2,7 @@
 
 ## BabelDOC 0.6.3
 
-BabelForge eXecutor distributes and invokes the unmodified BabelDOC 0.6.3 runtime.
+BabelForge Executor distributes and invokes the unmodified BabelDOC 0.6.3 runtime.
 
 - Project: <https://github.com/funstory-ai/BabelDOC>
 - Corresponding source: <https://github.com/funstory-ai/BabelDOC/tree/v0.6.3>

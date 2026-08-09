@@ -1,4 +1,4 @@
-# BabelForge eXecutor
+# BabelForge Executor
 
 Translate PDFs while preserving their layout with a local BabelDOC runtime and an OpenAI-compatible model provider. BFX keeps the source PDF unchanged and writes the translated result beside it by default.
 
@@ -6,13 +6,14 @@ Translate PDFs while preserving their layout with a local BabelDOC runtime and a
 
 The Windows installer includes BFX and BabelDOC, adds BFX to the current user's PATH, and registers an uninstall entry. Install it once, configure a model, then translate a PDF.
 
-- Download the versioned `BabelForge-eXecutor-<version>-win-Setup.exe` asset from [GitHub Releases](https://github.com/xiaoze-cn/BabelForge/releases)
+- Download the versioned `BabelForge-Executor-<version>-win-Setup.exe` asset from [GitHub Releases](https://github.com/xiaoze-cn/BabelForge/releases)
 - Run the installer
 - Configure a model
 - Translate a PDF
 
 ```powershell
-bfx config model set GPT5.5 --model gpt-5.5 --url https://api.example.com/v1 --key sk-xxxx
+$env:OPENAI_API_KEY = "sk-xxxx"
+bfx config model set GPT5.5 --model gpt-5.5 --url https://api.example.com/v1 --key env:OPENAI_API_KEY
 bfx doctor
 bfx update --check
 bfx run paper.pdf --model GPT5.5
@@ -53,7 +54,7 @@ bfx replace paper.pdf --undo
 Models and presets are stored locally for the current Windows user, rather than in the installation directory. A literal key is supported, but an environment variable avoids leaving the secret in the config file.
 
 ```text
-%LOCALAPPDATA%\BabelForge\eXecutor\config.toml
+%LOCALAPPDATA%\BabelForge\Executor\config.toml
 ```
 
 Keep API keys private and use an environment variable key when possible

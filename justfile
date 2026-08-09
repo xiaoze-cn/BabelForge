@@ -18,7 +18,7 @@ setup:
 
 [group('Rust')]
 cargo command *args:
-    @$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'; $vsroot = & $vswhere -latest -products * -property installationPath; $vcinclude = (Get-ChildItem "$vsroot\VC\Tools\MSVC\*\include\stdarg.h" | Select-Object -First 1).DirectoryName; cmd.exe /d /c "call `"$vsroot\VC\Auxiliary\Build\vcvarsall.bat`" x64 >nul && set `"INCLUDE=%INCLUDE%;$vcinclude`" && set `"BFX_ROOT={{ root }}`" && set `"BFX_BABELDOC={{ root }}\.pixi\envs\runtime\Scripts\babeldoc.exe`" && pixi run cargo {{ command }} {{ args }}"
+    @$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'; $vsroot = & $vswhere -latest -products * -property installationPath; $vcinclude = (Get-ChildItem "$vsroot\VC\Tools\MSVC\*\include\stdarg.h" | Select-Object -First 1).DirectoryName; cmd.exe /d /c "call `"$vsroot\VC\Auxiliary\Build\vcvarsall.bat`" x64 >nul && set `"INCLUDE=%INCLUDE%;$vcinclude`" && set `"BFX_ROOT={{ root }}\.pixi\envs`" && pixi run cargo {{ command }} {{ args }}"
 
 [group('Rust')]
 check:
@@ -56,7 +56,7 @@ doctor:
 verify file model="GPT5.4" preset="Default":
     @Get-CimInstance Win32_Process -Filter "Name = 'bfx.exe'" | Where-Object { $_.CommandLine -eq ('"{{ root }}\target\debug\bfx.exe" worker') } | ForEach-Object { Stop-Process -Id $_.ProcessId }
     @just cargo build --quiet
-    @$env:BFX_HOME = "{{ verify_home }}"; $env:BFX_CONFIG_PATH = "{{ env_dir }}\\config.toml"; $env:BFX_ROOT = "{{ root }}"; $env:BFX_BABELDOC = "{{ root }}\\.pixi\\envs\\runtime\\Scripts\\babeldoc.exe"; & "{{ root }}\\target\\debug\\bfx.exe" run "{{ file }}" --model "{{ model }}" --preset "{{ preset }}"
+    @$env:BFX_HOME = "{{ verify_home }}"; $env:BFX_CONFIG_PATH = "{{ env_dir }}\\config.toml"; $env:BFX_ROOT = "{{ root }}\\.pixi\\envs"; & "{{ root }}\\target\\debug\\bfx.exe" run "{{ file }}" --model "{{ model }}" --preset "{{ preset }}"
 
 [group('Verify')]
 fmt:

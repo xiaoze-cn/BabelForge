@@ -21,9 +21,7 @@ mod app {
             let root = runtime_root()?;
             let base = match std::env::var_os("BFX_HOME") {
                 Some(value) => PathBuf::from(value),
-                None => BaseDirs::new()
-                    .map(|dirs| dirs.data_local_dir().join("BabelForge").join("eXecutor"))
-                    .ok_or_else(|| BfxError::storage("Cannot resolve the BFX data directory"))?,
+                None => default_data_dir()?,
             };
             let config_dir = base.clone();
             let data_dir = base.join("data");
@@ -47,6 +45,54 @@ mod app {
                 store,
             })
         }
+    }
+
+    fn default_data_dir() -> Result<PathBuf> {
+        let root = BaseDirs::new()
+            .map(|dirs| dirs.data_local_dir().join("BabelForge"))
+            .ok_or_else(|| BfxError::storage("Cannot resolve the BFX data directory"))?;
+        migrate_data_dir(&root)
+    }
+
+    fn migrate_data_dir(root: &std::path::Path) -> Result<PathBuf> {
+        let current = root.join("Executor");
+        let legacy = root.join("eXecutor");
+        if exact_directory_exists(root, "Executor")? || !exact_directory_exists(root, "eXecutor")? {
+            return Ok(current);
+        }
+        let temporary = root.join(format!(".bfx-executor-migration-{}", std::process::id()));
+        if temporary.exists() {
+            return Err(BfxError::storage(
+                "Cannot migrate the BFX data directory because a temporary path exists",
+            ));
+        }
+        std::fs::rename(&legacy, &temporary).map_err(|error| {
+            BfxError::storage(format!("Cannot prepare the BFX data migration ({error})"))
+        })?;
+        if let Err(error) = std::fs::rename(&temporary, &current) {
+            let _ = std::fs::rename(&temporary, &legacy);
+            return Err(BfxError::storage(format!(
+                "Cannot migrate the BFX data directory ({error})"
+            )));
+        }
+        Ok(current)
+    }
+
+    fn exact_directory_exists(root: &std::path::Path, name: &str) -> Result<bool> {
+        if !root.is_dir() {
+            return Ok(false);
+        }
+        for entry in std::fs::read_dir(root).map_err(|error| {
+            BfxError::storage(format!("Cannot inspect the BFX data directory ({error})"))
+        })? {
+            let entry = entry.map_err(|error| {
+                BfxError::storage(format!("Cannot migrate the BFX data directory ({error})"))
+            })?;
+            if entry.file_type().is_ok_and(|kind| kind.is_dir()) && entry.file_name() == name {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn runtime_root() -> Result<PathBuf> {
@@ -77,9 +123,9 @@ mod app {
 
     fn has_runtime(root: &std::path::Path) -> bool {
         #[cfg(windows)]
-        let packaged = root.join("runtime").join("Scripts").join("babeldoc.exe");
+        let packaged = root.join("runtime").join("python.exe");
         #[cfg(not(windows))]
-        let packaged = root.join("runtime").join("bin").join("babeldoc");
+        let packaged = root.join("runtime").join("bin").join("python");
 
         packaged.is_file()
     }
@@ -88,6 +134,32 @@ mod app {
         std::env::var_os("BFX_BABELDOC")
             .map(std::path::PathBuf::from)
             .is_some_and(|path| path.is_file())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        #[test]
+        fn migrates_legacy_data_directory() {
+            let stamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let root = std::env::temp_dir().join(format!("bfx-data-migration-{stamp}"));
+            let legacy = root.join("eXecutor");
+            std::fs::create_dir_all(&legacy).unwrap();
+            std::fs::write(legacy.join("config.toml"), "test").unwrap();
+
+            let current = migrate_data_dir(&root).unwrap();
+
+            assert_eq!(current, root.join("Executor"));
+            assert!(current.join("config.toml").is_file());
+            assert!(exact_directory_exists(&root, "Executor").unwrap());
+            assert!(!exact_directory_exists(&root, "eXecutor").unwrap());
+            let _ = std::fs::remove_dir_all(root);
+        }
     }
 }
 
@@ -180,7 +252,10 @@ mod system {
 
     pub fn info(app: &App, json: bool) -> Result<()> {
         let babeldoc = engine::version(&app.root)?;
-        let version = babeldoc.strip_prefix("babeldoc ").unwrap_or(&babeldoc);
+        let version = babeldoc
+            .strip_prefix("babeldoc ")
+            .or_else(|| babeldoc.strip_prefix("main.py "))
+            .unwrap_or(&babeldoc);
         if json {
             return output::json(json!({
                 "version": env!("CARGO_PKG_VERSION"),
@@ -226,7 +301,7 @@ mod system {
         let latest = release_version(&release.tag_name)?;
         let current = env!("CARGO_PKG_VERSION");
         let available = version_parts(&latest)? > version_parts(current)?;
-        let asset_name = format!("BabelForge-eXecutor-{latest}-win-Setup.exe");
+        let asset_name = format!("BabelForge-Executor-{latest}-win-Setup.exe");
         let asset = release.assets.iter().find(|asset| asset.name == asset_name);
         if available && asset.is_none() {
             return Err(BfxError::update(format!(
@@ -321,7 +396,7 @@ use crate::error::{BfxError, Result};
 use clap::{Parser, Subcommand, error::ErrorKind};
 
 #[derive(Parser)]
-#[command(name = "bfx", version, about = "BabelForge eXecutor")]
+#[command(name = "bfx", version, about = "BabelForge Executor")]
 struct Cli {
     #[arg(long, global = true)]
     json: bool,
@@ -366,10 +441,14 @@ pub fn start() -> Result<()> {
         }
         Err(error) => return Err(BfxError::input(input_message(&error))),
     };
+    let json = cli.json;
+    let command = match cli.command {
+        Command::Update(args) => return system::update(args, json),
+        command => command,
+    };
     let app = App::open()?;
     files::ensure_files(&app.paths)?;
-    let json = cli.json;
-    match cli.command {
+    match command {
         Command::Config(args) => config::command::command(&app, args, json),
         Command::Submit(args) => execution::submit::command(&app, args, false, json),
         Command::Get(args) => execution::get::command(&app, args, json),
@@ -380,7 +459,7 @@ pub fn start() -> Result<()> {
         Command::Replace(args) => execution::replace::command(&app, args, json),
         Command::Info => system::info(&app, json),
         Command::Doctor => system::doctor(&app, json),
-        Command::Update(args) => system::update(args, json),
+        Command::Update(_) => unreachable!(),
         Command::Worker => execution::worker::work(&app),
     }
 }
@@ -441,6 +520,13 @@ fn input_message(error: &clap::Error) -> String {
     message
 }
 
+fn main() {
+    if let Err(error) = start() {
+        eprintln!("{error}");
+        std::process::exit(1);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -455,12 +541,5 @@ mod tests {
             input_message(&error),
             "the following required arguments were not provided: <ID>"
         );
-    }
-}
-
-fn main() {
-    if let Err(error) = start() {
-        eprintln!("{error}");
-        std::process::exit(1);
     }
 }

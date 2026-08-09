@@ -11,6 +11,9 @@ pub(crate) mod worker {
     use std::process::{Command, Stdio};
     use std::time::Instant;
 
+    const IDLE_POLLS_BEFORE_EXIT: u8 = 30;
+    const MAX_WAIT_RESTARTS: u8 = 3;
+
     pub fn spawn() -> Result<()> {
         let executable = std::env::current_exe().map_err(|error| {
             BfxError::queue(format!("Cannot resolve the BFX executable ({error})"))
@@ -33,12 +36,15 @@ pub(crate) mod worker {
     }
 
     pub fn work(app: &App) -> Result<()> {
-        let Some(_lock) = lock(app)? else {
-            return Ok(());
-        };
+        let (_lock, waited_for_lock) = worker_lock(app)?;
+        engine::cleanup_temporary_files(&app.paths.data_dir)?;
         app.store.recover()?;
+        let mut idle_polls = 0;
+        let mut exit_when_idle = waited_for_lock;
         loop {
             if let Some(task) = app.store.claim()? {
+                idle_polls = 0;
+                exit_when_idle = false;
                 let started = Instant::now();
                 if let Err(error) = process(app, task, &started) {
                     app.store
@@ -46,11 +52,19 @@ pub(crate) mod worker {
                 }
                 continue;
             }
+            if exit_when_idle {
+                return Ok(());
+            }
+            idle_polls += 1;
+            if idle_polls >= IDLE_POLLS_BEFORE_EXIT {
+                return Ok(());
+            }
             std::thread::sleep(std::time::Duration::from_millis(350));
         }
     }
 
     pub fn wait(app: &App, ids: &[String]) -> Result<Vec<Task>> {
+        let mut restarts = 0;
         loop {
             let mut tasks = Vec::with_capacity(ids.len());
             let mut finished = true;
@@ -67,22 +81,51 @@ pub(crate) mod worker {
             if finished {
                 return Ok(tasks);
             }
-            std::thread::sleep(std::time::Duration::from_millis(350));
+            if !running(app)? {
+                if restarts >= MAX_WAIT_RESTARTS {
+                    return Err(BfxError::queue(
+                        "The background worker stopped repeatedly while tasks were active",
+                    ));
+                }
+                spawn()?;
+                restarts += 1;
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            } else {
+                std::thread::sleep(std::time::Duration::from_millis(350));
+            }
         }
     }
 
-    fn lock(app: &App) -> Result<Option<File>> {
+    fn running(app: &App) -> Result<bool> {
+        let file = open_lock(app)?;
+        match file.try_lock_exclusive() {
+            Ok(()) => Ok(false),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(true),
+            Err(error) => Err(BfxError::queue(format!("Cannot lock the worker ({error})"))),
+        }
+    }
+
+    fn open_lock(app: &App) -> Result<File> {
         let path = app.paths.data_dir.join("worker.lock");
-        let file = OpenOptions::new()
+        OpenOptions::new()
             .create(true)
             .read(true)
             .write(true)
             .truncate(false)
             .open(path)
-            .map_err(|error| BfxError::queue(format!("Cannot open the worker lock ({error})")))?;
+            .map_err(|error| BfxError::queue(format!("Cannot open the worker lock ({error})")))
+    }
+
+    fn worker_lock(app: &App) -> Result<(File, bool)> {
+        let file = open_lock(app)?;
         match file.try_lock_exclusive() {
-            Ok(()) => Ok(Some(file)),
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
+            Ok(()) => Ok((file, false)),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                file.lock_exclusive().map_err(|error| {
+                    BfxError::queue(format!("Cannot wait for the worker lock ({error})"))
+                })?;
+                Ok((file, true))
+            }
             Err(error) => Err(BfxError::queue(format!("Cannot lock the worker ({error})"))),
         }
     }
@@ -107,9 +150,21 @@ pub(crate) mod worker {
             config::read_config(&app.paths.config).map_err(|error| (task.id.clone(), error))?;
         let (_, provider) = config::find_provider(&config, &task.model)
             .map_err(|error| (task.id.clone(), error))?;
+        let provider_url =
+            config::openai_base_url(&provider.url).map_err(|error| (task.id.clone(), error))?;
+        if provider.model != task.plan.engine_model || provider_url != task.plan.engine_url {
+            return Err((
+                task.id.clone(),
+                BfxError::config(format!(
+                    "Model \"{}\" changed after this task was queued",
+                    task.model
+                )),
+            ));
+        }
         let key = config::read_key(&provider.key).map_err(|error| (task.id.clone(), error))?;
         let result = engine::run(
             &app.root,
+            &app.paths.data_dir,
             &EngineInput {
                 input: task.input,
                 plan: task.plan,
@@ -236,12 +291,12 @@ pub(crate) mod submit {
             });
         }
         let ids = app.store.enqueue_many(&tasks)?;
-        worker::spawn()?;
         if priority {
             let tasks = worker::wait(app, &ids)?;
             print_run(&tasks, json)?;
             run_result(&tasks)?;
         } else {
+            worker::spawn()?;
             print_submit(&ids, json)?;
         }
         Ok(())
@@ -304,32 +359,6 @@ pub(crate) mod submit {
             }
         }
         Ok(())
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[test]
-        fn returns_task_error() {
-            let task = crate::storage::Task {
-                id: "20260715-153042".to_owned(),
-                input: "paper.pdf".to_owned(),
-                model: "Model".to_owned(),
-                state: "ERR".to_owned(),
-                plan_text: String::new(),
-                input_hash: None,
-                error_code: Some("BFX-ENG".to_owned()),
-                error_detail: Some("BabelDOC failed".to_owned()),
-                pair: None,
-                pair_hash: None,
-                mono: None,
-                duration_ms: None,
-            };
-            let error = run_result(&[task]).unwrap_err();
-            assert_eq!(error.code, "BFX-ENG");
-            assert_eq!(error.message, "BabelDOC failed");
-        }
     }
 
     fn files(inputs: &[PathBuf]) -> Result<Vec<PathBuf>> {
@@ -423,10 +452,35 @@ pub(crate) mod submit {
             ))
         }
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn returns_task_error() {
+            let task = crate::storage::Task {
+                id: "20260715-153042".to_owned(),
+                input: "paper.pdf".to_owned(),
+                model: "Model".to_owned(),
+                state: "ERR".to_owned(),
+                plan_text: String::new(),
+                input_hash: None,
+                error_code: Some("BFX-ENG".to_owned()),
+                error_detail: Some("BabelDOC failed".to_owned()),
+                pair: None,
+                pair_hash: None,
+                mono: None,
+                duration_ms: None,
+            };
+            let error = run_result(&[task]).unwrap_err();
+            assert_eq!(error.code, "BFX-ENG");
+            assert_eq!(error.message, "BabelDOC failed");
+        }
+    }
 }
 
 pub(crate) mod get {
-    use super::worker;
     use crate::app::App;
     use crate::error::{BfxError, Result};
     use crate::output;
@@ -449,7 +503,6 @@ pub(crate) mod get {
     }
 
     pub fn command(app: &App, args: GetArgs, json: bool) -> Result<()> {
-        worker::spawn()?;
         let states = states(&args.states)?;
         task_id(args.from.as_deref())?;
         task_id(args.to.as_deref())?;

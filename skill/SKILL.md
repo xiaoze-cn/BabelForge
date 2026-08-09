@@ -1,9 +1,9 @@
 ---
 name: babelforge-executor
-description: Install configure and operate BabelForge eXecutor bfx for Windows x64 PDF translation with BabelDOC and OpenAI-compatible models
+description: Install configure and operate BabelForge Executor bfx for Windows x64 PDF translation with BabelDOC and OpenAI-compatible models
 ---
 
-# BabelForge eXecutor
+# BabelForge Executor
 
 `bfx` PDF translation CLI
 
@@ -22,7 +22,7 @@ GitHub Releases
 https://github.com/xiaoze-cn/BabelForge/releases/latest
 ```
 
-- Select the versioned `BabelForge-eXecutor-<version>-win-Setup.exe` asset from the latest release
+- Select the versioned `BabelForge-Executor-<version>-win-Setup.exe` asset from the latest release
 - Download it to a temporary directory
 - Inspect the Authenticode signature
 - Tell the user when the installer is unsigned or invalid
@@ -54,7 +54,7 @@ bfx update --check --json
 ## Config
 
 ```text
-%LOCALAPPDATA%\BabelForge\eXecutor\config.toml
+%LOCALAPPDATA%\BabelForge\Executor\config.toml
 ```
 
 ```powershell

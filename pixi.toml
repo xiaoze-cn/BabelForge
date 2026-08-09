@@ -1,9 +1,9 @@
 [workspace]
 authors = ["xiaoze <hanze06@163.com>"]
 channels = ["conda-forge"]
-name = "BabelForge eXecutor"
+name = "BabelForge Executor"
 platforms = ["win-64"]
-version = "0.1.1"
+version = "0.1.2"
 
 [tasks]
 
